@@ -1,0 +1,11 @@
+[tool.poetry]
+name = "muzik-bot"
+version = "0.1.0"
+description = "Telegram Music Downloader Bot"
+authors = ["Your Name <you@example.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+python-telegram-bot = "^20.0"
+yt-dlp = "^2024.1.25"
+requests = "^2.31.0"
