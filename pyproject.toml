@@ -4,10 +4,13 @@ version = "0.1.0"
 description = "Telegram Music Downloader Bot"
 authors = ["Your Name <you@example.com>"]
 
-[tool.poetry.dependencies]
+[tool.poetry.dependencies] # Bu başlık kalacak, sadece altındaki satırlar değişecek
 python = "^3.10"
-pyTelegramBotAPI = "^4.14.0" # En son kararlı sürümü kullanıyoruz
+python-telegram-bot = "^20.0" 
 yt-dlp = "^2024.1.25"
 requests = "^2.31.0"
+flask = "^3.0.0" # Eksik olan Flask kütüphanesi eklendi.
+
+
 
 
