@@ -4,12 +4,12 @@ version = "0.1.0"
 description = "Telegram Music Bot"
 authors = ["Your Name <you@example.com>"]
 readme = "README.md"
-# Proje modu: Projenin paket olarak kurulmasını engeller. (Hatanın çözümü)
+# Proje modu: Projenin paket olarak kurulmasını engeller.
 package-mode = false 
 
 [tool.poetry.dependencies]
 python = "^3.10"
-python-telegram-bot = "^20.0" 
+python-telegram-bot = "^20.7" # Sürümü zorlayarak eski kodu silmesini sağlıyoruz
 yt-dlp = "^2024.1.25"
 requests = "^2.31.0"
 flask = "^3.0.0" 
