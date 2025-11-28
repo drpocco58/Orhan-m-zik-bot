@@ -5,15 +5,14 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from yt_dlp import YoutubeDL
 import asyncio
 
-# Uyanık tutma servisi için gerekli kütüphaneler
-from flask import Flask
-import threading
+# Render'da gerekli olan kütüphaneler bunlar olduğu için Flask kaldırıldı.
 
-# Token'ı Replit Secrets'tan çekiyoruz.
+# Token'ı Ortam Değişkenlerinden çekiyoruz.
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 if not BOT_TOKEN:
-    print("HATA: BOT_TOKEN ayarlanmamış. Lütfen Replit Secrets'ı kontrol edin.")
+    # Render üzerinde hata mesajı verir
+    print("HATA: BOT_TOKEN ayarlanmamış. Lütfen Render Ayarları'nı kontrol edin.")
     exit()
 
 # Günlükleme ayarları
@@ -26,13 +25,13 @@ logger = logging.getLogger(__name__)
 async def arama_ve_indir(query: str) -> tuple | None:
     """Arama yapar, MP3 indirir ve dosya yolunu döner."""
 
-    # AGRESİF ZAMAN AŞIMI VE DÜŞÜK KALİTE AYARLARI
+    # DÜŞÜK KALİTE VE ZAMAN AŞIMI AYARLARI (Render'da hızlı indirme için kritik)
     ydl_opts = {
         'format': 'worstaudio/worst', # DÜŞÜK KALİTE (En hızlı indirme için)
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
-            'preferredquality': '64', # MP3 Kalitesi 64kbps'ye düşürüldü
+            'preferredquality': '64', # MP3 Kalitesi 64kbps
         }],
         'outtmpl': 'downloaded_song.%(ext)s', 
         'noplaylist': True,
@@ -118,29 +117,12 @@ async def sarki_bul(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             os.remove(dosya_yolu)
 
 
-# --- Replit'in Uyku Moduna Geçmesini Engelleyen Fonksiyon ---
-def run_keep_alive():
-  """Botun Replit üzerinde sürekli çalışmasını sağlar."""
-  app = Flask(__name__)
-
-  @app.route('/')
-  def home():
-    return "Bot is running!"
-
-  def run():
-    # Replit'in varsayılan portu 8080'dir
-    app.run(host='0.0.0.0', port=8080)
-
-  t = threading.Thread(target=run)
-  t.start()
-
-
 # --- Ana Fonksiyon ---
 def main() -> None:
     """Botu çalıştıran ana fonksiyon."""
 
-    # Uyanık kalma servisini başlat
-    run_keep_alive()
+    # Render'da botun sürekli çalışmasını sağlamak için Flask'a gerek yoktur.
+    # Doğrudan Telegram polling başlatılır.
 
     # Uygulama oluşturma ve token'ı ekleme
     application = Application.builder().token(BOT_TOKEN).build()
