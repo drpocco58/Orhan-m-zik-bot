@@ -1,17 +1,12 @@
 [tool.poetry]
 name = "drmuzik-bot"
 version = "0.1.0"
-description = ""
-authors = ["Your Name <you@example.com>"]
-readme = "README.md"
-
+# ...
 [tool.poetry.dependencies]
 python = "^3.10"
 python-telegram-bot = "^20.0" 
 yt-dlp = "^2024.1.25"
 requests = "^2.31.0"
-# Flask kaldırıldı, çünkü artık botun çalışma kodunda kullanılmıyor ve sorun çıkarıyordu.
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+flask = "^3.0.0" 
+ffmpeg-python = "^0.2.0" 
+# ...
