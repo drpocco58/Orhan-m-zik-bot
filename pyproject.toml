@@ -8,11 +8,12 @@ readme = "README.md"
 package-mode = false 
 
 [tool.poetry.dependencies]
-python = "^3.10"
-python-telegram-bot = "^20.7" # Sürümü zorlayarak eski kodu silmesini sağlıyoruz
+python = ">=3.10,<3.12" 
+python-telegram-bot = "^20.7" 
 yt-dlp = "^2024.1.25"
 requests = "^2.31.0"
-flask = "^3.0.0" 
+# HATA DÜZELTMESİ: Async/Eşzamansız görünümler için [async] ek paketini dahil ediyoruz.
+flask = {extras = ["async"], version = "^3.0.0"} 
 ffmpeg-python = "^0.2.0" 
 
 [build-system]
