@@ -143,7 +143,6 @@ async def telegram_webhook():
     """Telegram'dan gelen tüm güncellemeleri işler."""
     if request.method == "POST":
         # Telegram'dan gelen JSON verisini al ve güncelleme objesine çevir
-        # Uygulama zaten başlatıldığı için initialize hatası almayacağız.
         update = telegram.Update.de_json(request.get_json(force=True), application.bot)
         
         # Güncellemeyi işleyiciye ilet
@@ -155,7 +154,6 @@ async def telegram_webhook():
 # Flask rotalarını bağla
 app.add_url_rule(WEBHOOK_PATH, view_func=telegram_webhook, methods=['POST'])
 
-
 # Uygulama başlatma fonksiyonu
 def setup_application():
     """Bot uygulamasını başlatır, işleyicileri ekler ve Webhook'u ayarlar."""
@@ -165,8 +163,9 @@ def setup_application():
     application.add_handler(CommandHandler("sarki", search_and_send_music))
     
     # 2. Uygulamayı başlat
-    # Bu, Application.initialize() metodunun senkronize bir şekilde çağrılmasıdır.
-    application.init_telebot()
+    # DÜZELTİLDİ: initialize() metodu artık doğru şekilde çağrılıyor.
+    # Bu, Application'ın tüm dahili bileşenlerini hazırlar.
+    asyncio.run(application.initialize())
     
     # 3. Webhook'u ayarla (Asenkron kodu senkronize çalıştırma)
     asyncio.run(set_webhook_url())
