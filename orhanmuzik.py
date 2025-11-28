@@ -28,12 +28,8 @@ WEBHOOK_URL = WEB_SERVICE_URL + WEBHOOK_PATH
 # Flask uygulamasını başlat
 app = Flask(__name__)
 
-# Global bot uygulama nesnesi
-application: Application = (
-    Application.builder()
-    .token(BOT_TOKEN)
-    .build()
-)
+# Global bot uygulama nesnesi (main fonksiyonunda başlatılacak)
+application: Application = None
 
 # =================================================================
 # 2. BOT KOMUTLARI
@@ -44,7 +40,7 @@ async def start_command(update: telegram.Update, context: telegram.ext.ContextTy
     await update.message.reply_text(
         "Merhaba! Ben Orhan Müzik Botu. İstediğiniz müziği Youtube'dan indirip size gönderebilirim.\n\n"
         "Kullanım: /sarki [Şarkı Adı] [Sanatçı Adı]\n\n"
-        "Örnek: /sarki Tarkan Kuzu Kuzu"
+        "Örnek: /sarki /sarki Tarkan Kuzu Kuzu"
     )
 
 async def search_and_send_music(update: telegram.Update, context: telegram.ext.ContextTypes.DEFAULT_TYPE):
@@ -124,32 +120,36 @@ async def search_and_send_music(update: telegram.Update, context: telegram.ext.C
             logger.info(f"Geçici dosya silindi: {downloaded_file}")
 
 # =================================================================
-# 3. WEBHOOK ENTEGRASYONU (FLASK) - HATA DÜZELTİLDİ
+# 3. WEBHOOK ENTEGRASYONU (FLASK)
 # =================================================================
 
 # Flask'ın /webhook_path adresine POST isteği geldiğinde çalışır
 @app.route(WEBHOOK_PATH, methods=['POST'])
-def telegram_webhook():
-    """Telegram'dan gelen tüm güncellemeleri, Event Loop hatasına düşmeden işler."""
+async def telegram_webhook():
+    """Telegram'dan gelen tüm güncellemeleri asenkron olarak işler."""
     
     # 1. Gelen JSON verisini Telegram Update objesine çevir
-    json_data = request.get_json(force=True)
+    json_data = await request.get_json(force=True)
     update = telegram.Update.de_json(json_data, application.bot)
     
-    # 2. KRİTİK DÜZELTME: Güncellemeyi doğrudan işlemek yerine sıraya koy. 
-    # Bu, Flask'ın senkron thread'i ile botun asenkron işleyicisi arasındaki çakışmayı önler.
-    application.update_queue.put_nowait(update)
+    # 2. Güncellemeyi işle
+    await application.process_update(update)
     
     return "ok"
 
+
 # =================================================================
-# 4. UYGULAMA BAŞLATMA VE WEBHOOK KURULUMU
+# 4. UYGULAMA BAŞLATMA VE WEBHOOK KURULUMU - TEK ASENKRON BLOK
 # =================================================================
 
-async def set_webhook_url():
-    """Botun Webhook URL'sini Telegram'a ayarlar ve arka plan işlemlerini başlatır."""
+async def start_bot_and_webhook():
+    """Tüm başlatma, kurulum ve arka plan görevlerini tek bir asenkron blokta çalıştırır."""
+    
+    # 1. Botu Başlat
+    await application.initialize()
+    
+    # 2. Webhook'u ayarla
     try:
-        # 1. Webhook'u ayarla
         if WEB_SERVICE_URL:
             await application.bot.set_webhook(url=WEBHOOK_URL)
             logger.info(f"✅ Webhook başarıyla ayarlandı! URL: {WEBHOOK_URL}")
@@ -157,31 +157,34 @@ async def set_webhook_url():
             logger.error("❌ WEB_SERVICE_URL çevresel değişkeni tanımlı değil!")
     except Exception as e:
         logger.error(f"❌ Webhook ayarlanırken kritik hata oluştu: {e}")
+        
+    # 3. Arka plan görevlerini başlat
+    await application.start()
+    
+    logger.info("Bot arka plan görevleri başlatıldı.")
 
 
 # Ana blok: Botu ve Flask'ı başlat
 if __name__ == "__main__":
     
+    # Global application objesini tanımla (start_bot_and_webhook'tan önce olmalı)
+    application = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .post_init(start_bot_and_webhook) # Uygulama yapıldığında bu asenkron fonksiyonu çağır
+        .build()
+    )
+
     # 1. İşleyicileri (handlers) ekle
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("sarki", search_and_send_music))
 
-    # 2. Arka plan işlemleri (update_queue'yu işleyecek)
-    asyncio.run(application.initialize())
-    
-    # 3. Webhook kurulumunu senkronize ortamda tek bir çağrı ile çalıştırıyoruz.
-    try:
-        asyncio.run(set_webhook_url())
-    except Exception as e:
-        logger.error(f"Başlatma sırasında beklenmeyen hata: {e}")
-
-    # 4. Application'ın arka plan worker'larını başlat
-    # Bu, update_queue'dan güncellemeleri alıp asenkron fonksiyonları çalıştıracak.
-    asyncio.run(application.start())
-    
-    # 5. Flask sunucusunu başlat
+    # 2. Flask sunucusunu başlat
     port = int(os.environ.get("PORT", 10000))
     logger.info(f"Flask sunucusu başlatılıyor, Port: {port}")
     
-    # Flask sunucusu çalışmaya başlar.
-    app.run(host='0.0.0.0', port=port, debug=False)
+    # Flask sunucusu çalışmaya başlar. 
+    # Bu versiyon, Flask'ın asenkron sunucusunu kullanır.
+    # UYARI: Flask'ın kendi dahili sunucusu yerine production WSGI sunucusu kullanılması gerekir, 
+    # ancak bu örnek için mecburen Flask'ın kendi sunucusunu kullanıyoruz.
+    asyncio.run(app.run(host='0.0.0.0', port=port, debug=False))
