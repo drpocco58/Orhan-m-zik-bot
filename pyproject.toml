@@ -7,7 +7,7 @@ authors = ["Your Name <you@example.com>"]
 [tool.poetry.dependencies]
 python = "^3.10"
 pyTelegramBotAPI = "^4.14.0" # En son kararlı sürümü kullanıyoruz
-
 yt-dlp = "^2024.1.25"
 requests = "^2.31.0"
+
 
