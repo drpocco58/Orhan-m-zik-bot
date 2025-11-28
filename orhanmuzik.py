@@ -55,6 +55,7 @@ async def search_and_send_music(update: telegram.Update, context: telegram.ext.C
         return
 
     query = " ".join(context.args)
+    # İlk mesajı anında göndererek kullanıcıya beklediğini bildir.
     initial_message = await update.message.reply_text(f"'{query}' için arama yapılıyor ve indirme başlatılıyor. Lütfen bekleyin...")
     logger.info(f"Yeni istek: {query}")
 
@@ -72,13 +73,14 @@ async def search_and_send_music(update: telegram.Update, context: telegram.ext.C
             'preferredcodec': 'mp3',
             'preferredquality': '192',
         }],
+        # İndirme yolunu geçici bir dizine ayarlıyoruz
         'outtmpl': os.path.join(temp_dir, 'music_%(id)s.%(ext)s'), 
         'limit_rate': '1M', 
         'logger': logger 
     }
     
     try:
-        # 1. YouTube'dan bilgiyi al
+        # 1. YouTube'dan bilgiyi al ve indir
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f"ytsearch1:{query}", download=False)
             
@@ -113,7 +115,7 @@ async def search_and_send_music(update: telegram.Update, context: telegram.ext.C
     except Exception as e:
         logger.error(f"İndirme veya gönderme sırasında hata: {e}")
         await initial_message.edit_text(
-            f"❌ İşlem Başarısız: '{query}' ile ilgili bir sonuç bulunamadı veya indirme sırasında beklenmedik bir hata oluştu."
+            f"❌ İşlem Başarısız: '{query}' ile ilgili bir sonuç bulunamadı veya indirme sırasında beklenmedik bir hata oluştu. Detay: {e}"
         )
     finally:
         # 4. Temizleme
@@ -122,18 +124,21 @@ async def search_and_send_music(update: telegram.Update, context: telegram.ext.C
             logger.info(f"Geçici dosya silindi: {downloaded_file}")
 
 # =================================================================
-# 3. WEBHOOK ENTEGRASYONU (FLASK)
+# 3. WEBHOOK ENTEGRASYONU (FLASK) - HATA DÜZELTİLDİ
 # =================================================================
 
 # Flask'ın /webhook_path adresine POST isteği geldiğinde çalışır
 @app.route(WEBHOOK_PATH, methods=['POST'])
-async def telegram_webhook():
-    """Telegram'dan gelen tüm güncellemeleri işler."""
+def telegram_webhook():
+    """Telegram'dan gelen tüm güncellemeleri, Event Loop hatasına düşmeden işler."""
     
+    # 1. Gelen JSON verisini Telegram Update objesine çevir
     json_data = request.get_json(force=True)
     update = telegram.Update.de_json(json_data, application.bot)
     
-    await application.process_update(update)
+    # 2. KRİTİK DÜZELTME: Güncellemeyi doğrudan işlemek yerine sıraya koy. 
+    # Bu, Flask'ın senkron thread'i ile botun asenkron işleyicisi arasındaki çakışmayı önler.
+    application.update_queue.put_nowait(update)
     
     return "ok"
 
@@ -142,14 +147,10 @@ async def telegram_webhook():
 # =================================================================
 
 async def set_webhook_url():
-    """Botun Webhook URL'sini Telegram'a ayarlar."""
+    """Botun Webhook URL'sini Telegram'a ayarlar ve arka plan işlemlerini başlatır."""
     try:
-        # 1. Application'ın temel bileşenlerini başlat
-        await application.initialize()
-        
-        # 2. Webhook'u ayarla
+        # 1. Webhook'u ayarla
         if WEB_SERVICE_URL:
-            # Önceki Webhook ayarlarını temizleyip yenisini kurar
             await application.bot.set_webhook(url=WEBHOOK_URL)
             logger.info(f"✅ Webhook başarıyla ayarlandı! URL: {WEBHOOK_URL}")
         else:
@@ -165,15 +166,22 @@ if __name__ == "__main__":
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("sarki", search_and_send_music))
 
-    # 2. Webhook kurulumunu senkronize ortamda tek bir çağrı ile çalıştırıyoruz.
-    # Bu, önceki tüm loop hatalarını çözer.
+    # 2. Arka plan işlemleri (update_queue'yu işleyecek)
+    asyncio.run(application.initialize())
+    
+    # 3. Webhook kurulumunu senkronize ortamda tek bir çağrı ile çalıştırıyoruz.
     try:
         asyncio.run(set_webhook_url())
     except Exception as e:
         logger.error(f"Başlatma sırasında beklenmeyen hata: {e}")
 
-    # 3. Flask sunucusunu başlat
+    # 4. Application'ın arka plan worker'larını başlat
+    # Bu, update_queue'dan güncellemeleri alıp asenkron fonksiyonları çalıştıracak.
+    asyncio.run(application.start())
+    
+    # 5. Flask sunucusunu başlat
     port = int(os.environ.get("PORT", 10000))
     logger.info(f"Flask sunucusu başlatılıyor, Port: {port}")
     
+    # Flask sunucusu çalışmaya başlar.
     app.run(host='0.0.0.0', port=port, debug=False)
