@@ -4,15 +4,17 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from yt_dlp import YoutubeDL
 import asyncio
+from flask import Flask, request, jsonify # Webhook için flask geri geldi!
+import threading
 
-# Render'da gerekli olan kütüphaneler bunlar olduğu için Flask kaldırıldı.
-
-# Token'ı Ortam Değişkenlerinden çekiyoruz.
+# Token ve URL'leri Ortam Değişkenlerinden çekiyoruz.
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
+# Render, URL'yi otomatik olarak "WEB_SERVICE_URL" ortam değişkenine yazar
+WEB_SERVICE_URL = os.environ.get("WEB_SERVICE_URL") 
+PORT = int(os.environ.get("PORT", 5000)) # Render'ın vereceği portu kullan
 
-if not BOT_TOKEN:
-    # Render üzerinde hata mesajı verir
-    print("HATA: BOT_TOKEN ayarlanmamış. Lütfen Render Ayarları'nı kontrol edin.")
+if not BOT_TOKEN or not WEB_SERVICE_URL:
+    print("HATA: BOT_TOKEN veya WEB_SERVICE_URL ayarlanmamış. Lütfen Render Ayarları'nı kontrol edin.")
     exit()
 
 # Günlükleme ayarları
@@ -21,13 +23,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Flask uygulaması
+app = Flask(__name__)
+application = None # Global application değişkeni
+
 # --- Yardımcı Fonksiyon: Şarkıyı Bulma ve İndirme ---
+# NOT: ffmpeg-python kütüphanesi pyproject.toml'a eklendiği için artık yt-dlp bu kütüphaneyi kullanabilir.
 async def arama_ve_indir(query: str) -> tuple | None:
     """Arama yapar, MP3 indirir ve dosya yolunu döner."""
 
-    # DÜŞÜK KALİTE VE ZAMAN AŞIMI AYARLARI (Render'da hızlı indirme için kritik)
+    # DÜŞÜK KALİTE VE ZAMAN AŞIMI AYARLARI
     ydl_opts = {
-        'format': 'worstaudio/worst', # DÜŞÜK KALİTE (En hızlı indirme için)
+        'format': 'worstaudio/worst', 
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
@@ -39,15 +46,14 @@ async def arama_ve_indir(query: str) -> tuple | None:
         'nocheckcertificate': True,
         'default_search': 'ytsearch',
 
-        # AGRESİF ZAMAN AŞIMI AYARLARI
-        'socket_timeout': 5,  # Bağlantı zaman aşımını 5 saniyeye düşür
-        'retries': 3,         # Tekrar deneme
+        # ZAMAN AŞIMI AYARLARI
+        'socket_timeout': 5, 
+        'retries': 3,         
         'fragment_retries': 3,
         'geo_bypass': True,
     }
 
     try:
-        # Arama yapmak için YoutubeDL'i kullan
         with YoutubeDL(ydl_opts) as ydl:
             # Şarkıyı arat ve bilgiyi al (Sadece 1 sonuç)
             info = ydl.extract_info(f"ytsearch1:{query}", download=True)
@@ -68,11 +74,15 @@ async def arama_ve_indir(query: str) -> tuple | None:
         logger.error(f"İndirme/Arama sırasında hata: {e}")
         return None
 
+# Webhook'un indirme işlemini beklemesini sağlayan senkronize sarıcı
+# Bu sayede uzun süren indirme işlemi Telegram'a "timeout" hatası vermeden yapılır.
+def arama_ve_indir_sync(query: str):
+    return asyncio.run(arama_ve_indir(query))
 
 # --- Telegram Komut İşleyicisi ---
 async def sarki_bul(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Kullanıcıdan gelen /sarki komutunu işler."""
-
+    
     arama_metni = ' '.join(context.args)
 
     if not arama_metni:
@@ -82,10 +92,12 @@ async def sarki_bul(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     # Hemen cevap ver, indirme işleminin başladığını bildir
-    mesaj = await update.message.reply_text(f"🎧 '{arama_metni}' aranıyor ve indiriliyor... Lütfen bekleyin.")
+    mesaj = await update.message.reply_text(f"🎧 '{arama_metni}' aranıyor ve indiriliyor... Bu işlem biraz zaman alabilir.")
 
-    # Şarkıyı bulma ve indirme işlemini başlat
-    sonuc = await asyncio.to_thread(arama_ve_indir, arama_metni) 
+    # Şarkıyı bulma ve indirme işlemini başlat (Ayrı bir Thread'de)
+    loop = asyncio.get_event_loop()
+    # run_in_executor sayesinde indirme işlemi ana döngüyü bloklamaz.
+    sonuc = await loop.run_in_executor(None, arama_ve_indir_sync, arama_metni)
 
     # HATA KONTROLÜ
     if not sonuc or not isinstance(sonuc, tuple) or len(sonuc) != 2:
@@ -117,22 +129,58 @@ async def sarki_bul(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             os.remove(dosya_yolu)
 
 
+# --- Webhook İstemcisi ---
+@app.route(f"/{BOT_TOKEN}", methods=["POST"])
+async def telegram_webhook():
+    """Telegram'dan gelen mesajları işleyen webhook."""
+    try:
+        update_data = request.get_json(force=True)
+        update = Update.de_json(update_data, application.bot)
+        
+        # Handler'ı ayrı bir thread'de çalıştırma 
+        await application.update_queue.put(update)
+
+        # Telegram'a hemen cevap veriyoruz (200 OK)
+        return jsonify({"status": "ok"}), 200
+    except Exception as e:
+        logger.error(f"Webhook hatası: {e}")
+        return jsonify({"status": "error"}), 500
+
+@app.route('/')
+def home():
+    """Render'ın web hizmetini kontrol etmesi için basit bir sayfa."""
+    return "Bot is running via Webhook!"
+
+
 # --- Ana Fonksiyon ---
 def main() -> None:
     """Botu çalıştıran ana fonksiyon."""
-
-    # Render'da botun sürekli çalışmasını sağlamak için Flask'a gerek yoktur.
-    # Doğrudan Telegram polling başlatılır.
-
-    # Uygulama oluşturma ve token'ı ekleme
+    global application
+    
+    # Uygulama oluşturma
     application = Application.builder().token(BOT_TOKEN).build()
-
-    # /sarki komutunu, sarki_bul fonksiyonuna bağla
+    
+    # Komutları ekle
     application.add_handler(CommandHandler("sarki", sarki_bul))
 
-    # Botu başlat (Sürekli dinleme)
-    print("Bot dinlemede...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    # Telegram'a Webhook URL'sini ayarla
+    webhook_url = f"{WEB_SERVICE_URL.rstrip('/')}/{BOT_TOKEN}"
+    application.bot.set_webhook(url=webhook_url)
+
+    # Bot işlemleri için sadece başlatma (artık Polling yok!)
+    def start_bot_worker():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        # Sadece post_init çağrılır. Polling veya Webhook dinleme yapılmaz.
+        # Dinleme işini Flask halleder.
+        loop.run_until_complete(application.post_init())
+
+    threading.Thread(target=start_bot_worker).start()
+
+    # Flask uygulamasını başlat
+    print(f"Flask Webhook dinlemede: {WEB_SERVICE_URL}:{PORT}")
+    app.run(host="0.0.0.0", port=PORT, debug=False)
+
 
 if __name__ == "__main__":
     main()
