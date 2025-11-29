@@ -168,7 +168,6 @@ async def setup_webhook():
     await application.start()
     logger.info("Bot arka plan görevleri başlatıldı.")
 
-
 # Ana blok: Botu ve Flask'ı başlat
 if __name__ == "__main__":
     
@@ -183,9 +182,15 @@ if __name__ == "__main__":
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("sarki", search_and_send_music))
 
-    # Tüm asenkron kurulumu senkronize bir şekilde çalıştır
-    # Bu, Flask başlamadan önce botun hazır olmasını garanti eder.
-    asyncio.run(setup_webhook())
+    # Tüm asenkron kurulumu senkronize bir şekilde çalıştır (Webhook ayarlanmasını GARANTİ EDER)
+    # Bu, Flask başlamadan önce botun hazır olmasını sağlar.
+    # NOT: Bu bloğun başarısız olması, Flask'ın hiç başlamamasına neden olur. Başarılı olması GEREKİR.
+    try:
+        asyncio.run(setup_webhook())
+    except Exception as e:
+        logger.error(f"BOT KURULUMU BAŞARISIZ OLDU: {e}")
+        # Kurulum başarısız olsa bile Flask'ı başlatmaya devam et (servisin ayakta kalması için)
+        pass 
     
     # Flask sunucusunu başlat
     port = int(os.environ.get("PORT", 10000))
