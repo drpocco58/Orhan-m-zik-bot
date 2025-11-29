@@ -6,6 +6,7 @@ import yt_dlp
 import telegram
 from flask import Flask, request
 from telegram.ext import Application, CommandHandler
+from werkzeug.wrappers import Response
 
 # =================================================================
 # 1. YAPILANDIRMA VE LOGLAMA
@@ -129,13 +130,17 @@ async def telegram_webhook():
     """Telegram'dan gelen tüm güncellemeleri asenkron olarak işler."""
     
     # Flask'ın isteği asenkron olarak işlemesi için gereken dönüşümü yap
-    json_data = await request.get_json(force=True)
-    update = telegram.Update.de_json(json_data, application.bot)
-    
-    # Güncellemeyi işle
-    await application.process_update(update)
-    
-    return "ok"
+    try:
+        json_data = await request.get_json(force=True)
+        update = telegram.Update.de_json(json_data, application.bot)
+        
+        # Güncellemeyi işle
+        await application.process_update(update)
+        
+        return "ok"
+    except Exception as e:
+        logger.error(f"Webhook isteği işlenirken hata oluştu: {e}")
+        return Response("Webhook Error", status=500)
 
 # =================================================================
 # 4. UYGULAMA BAŞLATMA VE WEBHOOK KURULUMU - NİHAİ YÖNTEM
@@ -163,30 +168,26 @@ async def setup_webhook():
     await application.start()
     logger.info("Bot arka plan görevleri başlatıldı.")
 
-# Flask'ın ilk isteği almadan önce Webhook'u ayarla
-# Bu, botun başlatma işlemlerini Flask'ın yaşam döngüsüyle senkronize eder.
-@app.before_first_request
-def before_first_request_func():
-    """Flask'ın ilk isteği almadan önce asenkron kurulumu çalıştırır."""
-    global application
-    
-    # Uygulama daha önce kurulmadıysa kurulumu yap
-    if not application:
-        application = (
-            Application.builder()
-            .token(BOT_TOKEN)
-            .build()
-        )
-        application.add_handler(CommandHandler("start", start_command))
-        application.add_handler(CommandHandler("sarki", search_and_send_music))
-    
-    # Asenkron kurulumu Flask'ın kendi thread'inde çalıştır
-    asyncio.run(setup_webhook())
 
-# Ana blok: Flask'ı başlat
+# Ana blok: Botu ve Flask'ı başlat
 if __name__ == "__main__":
     
-    # Bu blok sadece Flask'ın başlatılmasını yönetir. Bot kurulumu before_first_request'te yapılır.
+    # Global application objesini tanımla
+    application = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .build()
+    )
+
+    # İşleyicileri (handlers) ekle
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("sarki", search_and_send_music))
+
+    # Tüm asenkron kurulumu senkronize bir şekilde çalıştır
+    # Bu, Flask başlamadan önce botun hazır olmasını garanti eder.
+    asyncio.run(setup_webhook())
+    
+    # Flask sunucusunu başlat
     port = int(os.environ.get("PORT", 10000))
     logger.info(f"Flask sunucusu başlatılıyor, Port: {port}")
     
