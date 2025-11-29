@@ -63,7 +63,7 @@ def _send_audio_sync(chat_id, downloaded_file, video_info):
     except Exception as e:
         logger.error(f"❌ Senkronize gönderme sırasında kritik hata: {e}")
         try:
-            bot.send_message(chat_id=chat_id, text=f"❌ Şarkı yüklenirken bir hata oluştu. Detay: {e}")
+            bot.send_message(chat_id=chat_id, text=f"❌ Şarkı yüklenirken bir hata oluştu. Lütfen tekrar deneyin. Detay: {e}")
         except:
              logger.error("Kullanıcıya hata mesajı gönderme başarısız oldu.")
 
@@ -252,3 +252,7 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     logger.info(f"Yerel test için Flask sunucusu başlatılıyor, Port: {port}")
     app.run(host='0.0.0.0', port=port, debug=False)
+
+# Bu yorum, Gunicorn'un kurulmasını sağlamak için yeni bir dağıtımı tetikler.
+# Render'ın bu kez requirements.txt dosyasını okumasını garanti eder.
+# Lütfen bu satırı silmeyin.
