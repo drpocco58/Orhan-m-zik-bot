@@ -110,9 +110,5 @@ def main() -> None:
     )
 
 if __name__ == "__main__":
-    # Render'da ilk çalıştırmada webhook'u set eder
-    temp_app = ApplicationBuilder().token(TOKEN).build()
-    asyncio.run(temp_app.bot.set_webhook(url=f"{RENDER_URL}/webhook"))
-    print(f"Webhook başarıyla ayarlandı: {RENDER_URL}/webhook")
-    
+    temp_app = ApplicationBuilder()...
     main()
