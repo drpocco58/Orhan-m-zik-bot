@@ -10,7 +10,6 @@ from flask import Flask, request
 # ------------------------------------------------------------------
 # !!! KESİN ÇÖZÜM: TOKEN DOĞRUDAN KOD İÇİNE GÖMÜLÜYOR !!!
 # Render'ın Environment Variable okuma sorununu aşmak için token buraya gömüldü.
-# Sizin bana verdiğiniz son token:
 TELEGRAM_BOT_TOKEN = "8304604344:AAGJg949AqR7iitfqWGkvdu8QFtDe7rIScc"
 # ------------------------------------------------------------------
 
@@ -51,6 +50,9 @@ async def download_song(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Kullanıcıya işlem başladığını bildir
     await update.message.reply_text(f'"{query}" aranıyor ve indirilmeye hazırlanıyor. Lütfen bekleyin...')
+    
+    # Render'ın anlık bağlantıyı kesmesini (timeout) engellemek için kısa bir gecikme ekler
+    time.sleep(2) 
     
     try:
         # yt-dlp import'u, uygulamanın global olarak çökmemesi için burada tutuldu
@@ -120,13 +122,13 @@ application.add_handler(CommandHandler("sarki", download_song))
 
 # ----------------------------------------
 # 3. WEBHOOK VE SUNUCU KURULUMU
+# Flask'ın sadece kök dizini (/) dinlemesi sağlanır.
 # ----------------------------------------
 
-@app.route('/' + TELEGRAM_BOT_TOKEN, methods=['POST'])
+@app.route('/', methods=['POST']) 
 async def webhook():
     """Telegram'dan gelen Webhook güncellemelerini işler."""
     if request.method == "POST":
-        # Yeni PTB'de process_update yerini update.de_json alıyor.
         update = Update.de_json(request.get_json(force=True), bot)
         
         # Application'ın update'i işlemesi için async kullanımı zorunludur.
@@ -143,4 +145,3 @@ def run():
 
 # Uygulamanın başlatılması
 # Gunicorn bu dosyayı başlatır ve 'app' objesini bulur.
-# run() fonksiyonunu çağırmıyoruz, çünkü Gunicorn kendi web sunucusunu çalıştırıyor.
