@@ -34,8 +34,27 @@ async def sarki(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "format": "bestaudio/best",
             "quiet": True,
             "outtmpl": "song.%(ext)s",
-            "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}],
+            "postprocessors": [{
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192"
+            }],
             "noplaylist": True,
+            "geo_bypass": True,
+            "geo_bypass_country": "TR",
+            "http_headers": {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "tr-TR,tr;q=0.9,en;q=0.8",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1"
+            },
+            "retries": 15,
+            "fragment_retries": 15,
+            "sleep_interval": 2,
+            "max_sleep_interval": 10,
+            "extractor_retries": 5
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f"ytsearch1:{query}", download=True)
@@ -75,3 +94,4 @@ async def on_startup():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=PORT)
+
