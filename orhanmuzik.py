@@ -2,29 +2,33 @@ import os
 import logging
 import json
 import time
-from flask import Flask, request
-# !!! BURASI DEĞİŞTİ: Yeni versiyona uyum sağlamak için importlar güncellendi !!!
+# Yeni PTB (Python-Telegram-Bot) versiyonu için güncel importlar
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from telegram import Update, Bot
+from flask import Flask, request
+
+# ------------------------------------------------------------------
+# !!! KESİN ÇÖZÜM: TOKEN DOĞRUDAN KOD İÇİNE GÖMÜLÜYOR !!!
+# Render'ın Environment Variable okuma sorununu aşmak için token buraya gömüldü.
+# Sizin bana verdiğiniz son token:
+TELEGRAM_BOT_TOKEN = "8304604344:AAGJg949AqR7iitfqWGkvdu8QFtDe7rIScc"
+# ------------------------------------------------------------------
 
 # Gerekli kütüphaneleri içe aktarın
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Çevre değişkenlerinden Telegram Bot Token'ını alın
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-
+# Eğer token boşsa (ki bu durumda olmayacak), hata logla
 if not TELEGRAM_BOT_TOKEN:
-    logger.error("TELEGRAM_BOT_TOKEN çevresel değişkeni bulunamadı. Lütfen Render ayarlarınızı kontrol edin.")
+    logger.error("TELEGRAM_BOT_TOKEN atanırken bir sorun oluştu.")
 
-# Flask uygulaması kurulumu (Application nesnesi Dispatcher'ın yerini aldı)
-app = Flask(__name__)
-# ApplicationBuilder ile bot nesnesi oluşturulur ve Application başlatılır
+# Flask uygulaması kurulumu
 application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 bot = application.bot
+app = Flask(__name__)
 
 # ----------------------------------------
-# 1. BOT KOMUTLARI (ContextTypes.DEFAULT_TYPE ile uyumlu hale getirildi)
+# 1. BOT KOMUTLARI
 # ----------------------------------------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -49,7 +53,7 @@ async def download_song(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f'"{query}" aranıyor ve indirilmeye hazırlanıyor. Lütfen bekleyin...')
     
     try:
-        # yt-dlp import'u kodun en tepesine taşınmıştır.
+        # yt-dlp import'u, uygulamanın global olarak çökmemesi için burada tutuldu
         from yt_dlp import YoutubeDL 
         
         # 1. YT-DLP Ayarları
@@ -115,7 +119,7 @@ application.add_handler(CommandHandler("help", help_command))
 application.add_handler(CommandHandler("sarki", download_song))
 
 # ----------------------------------------
-# 3. WEBHOOK VE SUNUCU KURULUMU (Application nesnesine uyarlandı)
+# 3. WEBHOOK VE SUNUCU KURULUMU
 # ----------------------------------------
 
 @app.route('/' + TELEGRAM_BOT_TOKEN, methods=['POST'])
@@ -137,5 +141,6 @@ def run():
     logger.info(f"Flask uygulaması 0.0.0.0:{port} adresinde başlatılıyor.")
     app.run(host='0.0.0.0', port=port)
 
-# Uygulamanın başlatılması (Gunicorn, bu dosyayı başlatır)
-# NOT: Artık uygulama, Gunicorn tarafından başlatılacağı için 'if __name__ == "__main__":' bloğu Gunicorn komutunu bozmasın diye kaldırılmıştır.
+# Uygulamanın başlatılması
+# Gunicorn bu dosyayı başlatır ve 'app' objesini bulur.
+# run() fonksiyonunu çağırmıyoruz, çünkü Gunicorn kendi web sunucusunu çalıştırıyor.
