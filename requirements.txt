@@ -1,7 +1,4 @@
 python-telegram-bot
-flask
 yt-dlp
-gunicorn
 gevent
 greenlet
-gunicorn[gevent]
