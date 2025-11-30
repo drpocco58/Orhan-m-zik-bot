@@ -1,1 +1,5 @@
 python-telegram-bot[webhooks]==20.8
+yt-dlp==2024.11.18
+openai==1.51.0
+pydub
+ffmpeg-python
