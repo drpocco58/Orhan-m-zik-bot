@@ -1,4 +1,3 @@
 python-telegram-bot[webhooks]==20.8
 yt-dlp==2024.11.18
-ffmpeg-python
 nest-asyncio
