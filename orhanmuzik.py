@@ -1,147 +1,47 @@
 import os
-import logging
-import json
-import time
-# Yeni PTB (Python-Telegram-Bot) versiyonu için güncel importlar
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from telegram import Update, Bot
-from flask import Flask, request
+import yt_dlp
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-# ------------------------------------------------------------------
-# !!! KESİN ÇÖZÜM: TOKEN DOĞRUDAN KOD İÇİNE GÖMÜLÜYOR !!!
-# Render'ın Environment Variable okuma sorununu aşmak için token buraya gömüldü.
-TELEGRAM_BOT_TOKEN = "8304604344:AAGJg949AqR7iitfqWGkvdu8QFtDe7rIScc"
-# ------------------------------------------------------------------
+TOKEN = "8304604344:AAGJg949AqR7iitfqWGkvdu8QFtDe7rIScc"
+PORT = int(os.environ.get("PORT", 8080))
+WEBHOOK_URL = os.environ.get("RENDER_EXTERNAL_URL")
 
-# Gerekli kütüphaneleri içe aktarın
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
-# Eğer token boşsa (ki bu durumda olmayacak), hata logla
-if not TELEGRAM_BOT_TOKEN:
-    logger.error("TELEGRAM_BOT_TOKEN atanırken bir sorun oluştu.")
-
-# Flask uygulaması kurulumu
-application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-bot = application.bot
-app = Flask(__name__)
-
-# ----------------------------------------
-# 1. BOT KOMUTLARI
-# ----------------------------------------
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/start komutunu işler."""
-    await update.message.reply_text('Merhaba! Ben bir müzik botuyum. Şarkı indirmek için /sarki <Sanatçı Adı - Şarkı Adı> komutunu kullanın.')
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/help komutunu işler."""
-    await update.message.reply_text('Kullanım: /sarki <Sanatçı Adı - Şarkı Adı>. Örnek: /sarki Emrah unutabilsen')
-
-async def download_song(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Kullanıcının isteği üzerine YouTube'dan şarkıyı arar ve indirir."""
-    
-    # Komut argümanlarını kontrol et
+async def sarki(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("Lütfen şarkı adını belirtin. Kullanım: /sarki <Sanatçı Adı - Şarkı Adı>")
+        await update.message.reply_text("Kardeşim şarkı adını yazmadın.")
         return
 
     query = " ".join(context.args)
-    
-    # Kullanıcıya işlem başladığını bildir
-    await update.message.reply_text(f'"{query}" aranıyor ve indirilmeye hazırlanıyor. Lütfen bekleyin...')
-    
-    # Render'ın anlık bağlantıyı kesmesini (timeout) engellemek için kısa bir gecikme ekler
-    time.sleep(2) 
-    
-    try:
-        # yt-dlp import'u, uygulamanın global olarak çökmemesi için burada tutuldu
-        from yt_dlp import YoutubeDL 
-        
-        # 1. YT-DLP Ayarları
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-            'outtmpl': 'downloads/%(title)s.%(ext)s',  # İndirilen dosyayı downloads klasörüne kaydet
-            'quiet': True,
-            'default_search': 'ytsearch', # Varsayılan olarak YouTube'da ara
-            'max_downloads': 1 # Sadece ilk sonucu indir
-        }
-        
-        # downloads klasörünün varlığını kontrol et ve oluştur
-        if not os.path.exists('downloads'):
-            os.makedirs('downloads')
+    await update.message.reply_text(f"Arıyorum Orhan usta, bekle... 🎧\n\n{query}")
 
-        with YoutubeDL(ydl_opts) as ydl:
-            # Şarkıyı ara ve indir
-            info_dict = ydl.extract_info(query, download=True)
-            
-            # İndirilen dosyanın yolunu bul
-            if 'entries' in info_dict and info_dict['entries']:
-                # Tek bir giriş olması beklenir
-                entry = info_dict['entries'][0]
-            else:
-                entry = info_dict
-                
-            # İndirilen dosyanın gerçek yolunu almak için dosya adını yeniden oluştur
-            filename = ydl.prepare_filename(entry)
-            audio_file = filename.rsplit('.', 1)[0] + '.mp3' 
+    ydl_opts = {
+        "format": "bestaudio/best",
+        "quiet": True,
+        "outtmpl": "song.mp3",
+        "postprocessors": [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192",
+            }
+        ],
+    }
 
-        if os.path.exists(audio_file):
-            # 2. Şarkıyı Telegram'a Gönder
-            with open(audio_file, 'rb') as f:
-                await update.message.reply_audio(
-                    f, 
-                    caption=f'İşte "{entry.get("title", "Şarkı")}"',
-                    title=entry.get("title", "Şarkı")
-                )
-            
-            # 3. İndirilen dosyayı sunucudan sil (Render kısıtlamaları nedeniyle)
-            os.remove(audio_file)
-            logger.info(f"Dosya başarıyla gönderildi ve silindi: {audio_file}")
-            
-        else:
-            await update.message.reply_text("Üzgünüm, şarkı indirilemedi veya dosya bulunamadı.")
-            logger.warning(f"İndirilemedi: {audio_file}")
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([f"ytsearch:{query}"])
 
-    except Exception as e:
-        logger.error(f"Şarkı indirme hatası: {e}")
-        await update.message.reply_text('Üzgünüm, şarkıyı ararken veya indirirken bir hata oluştu.')
-        
-# ----------------------------------------
-# 2. KOMUT İŞLEYİCİLERİ (HANDLERS)
-# ----------------------------------------
+    await update.message.reply_audio(open("song.mp3", "rb"))
 
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("help", help_command))
-application.add_handler(CommandHandler("sarki", download_song))
+def main():
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler("sarki", sarki))
 
-# ----------------------------------------
-# 3. WEBHOOK VE SUNUCU KURULUMU
-# Flask'ın sadece kök dizini (/) dinlemesi sağlanır.
-# ----------------------------------------
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        webhook_url=f"{WEBHOOK_URL}/webhook"
+    )
 
-@app.route('/', methods=['POST']) 
-async def webhook():
-    """Telegram'dan gelen Webhook güncellemelerini işler."""
-    if request.method == "POST":
-        update = Update.de_json(request.get_json(force=True), bot)
-        
-        # Application'ın update'i işlemesi için async kullanımı zorunludur.
-        await application.process_update(update)
-
-    return 'OK' # Telegram'a mesajın başarılı bir şekilde alındığını bildirir.
-
-# Flask uygulamasının Render ortamında başlatılması için gerekli fonksiyon
-def run():
-    """Uygulamayı Render tarafından belirlenen portta başlatır."""
-    port = int(os.environ.get("PORT", 5000))
-    logger.info(f"Flask uygulaması 0.0.0.0:{port} adresinde başlatılıyor.")
-    app.run(host='0.0.0.0', port=port)
-
-# Uygulamanın başlatılması
-# Gunicorn bu dosyayı başlatır ve 'app' objesini bulur.
+if __name__ == "__main__":
+    main()
