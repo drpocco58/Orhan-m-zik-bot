@@ -248,11 +248,12 @@ def setup_bot_sync():
 setup_bot_sync()
 
 # Gunicorn dışındaki başlatmalar için (Render'da bu kısım kullanılmayacak)
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    logger.info(f"Yerel test için Flask sunucusu başlatılıyor, Port: {port}")
-    app.run(host='0.0.0.0', port=port, debug=False)
+if __name__ == '__main__':
+    # Bu blok, uygulamanın Render tarafından başlatılmasını sağlar.
+    # Flask uygulamasını belirlenen portu dinlemesi için çalıştırırız.
+    run()
 
 # Bu yorum, Gunicorn'un kurulmasını sağlamak için yeni bir dağıtımı tetikler.
 # Render'ın bu kez requirements.txt dosyasını okumasını garanti eder.
 # Lütfen bu satırı silmeyin.
+
