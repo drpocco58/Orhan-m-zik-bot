@@ -1,19 +1,22 @@
 import os
 import asyncio
+import nest_asyncio  # Event loop çakışmasını önler
 import logging
 import yt_dlp
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
-from telegram.constants import ParseMode
+
+# nest_asyncio'yu uygula (Render'da loop sorununu çözer)
+nest_asyncio.apply()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 TOKEN = "8304604344:AAGJg949AqR7iitfqWGkvdu8QFtDe7rIScc"
 PORT = int(os.environ.get("PORT", 10000))
-WEBHOOK_URL = f"https://{os.environ['RENDER_EXTERNAL_HOSTNAME']}/webhook"
+WEBHOOK_URL = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME', 'drmuzik-bot-1.onrender.com')}/webhook"
 
-# yt-dlp ayarları
+# yt-dlp ayarları (aynı kaldı)
 ydl_opts = {
     "format": "bestaudio/best",
     "quiet": True,
@@ -67,10 +70,12 @@ async def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("sarki", sarki))
 
-    # Webhook ayarla (ilk seferde)
+    # Webhook ayarla
     await app.bot.set_webhook(url=WEBHOOK_URL)
+    print(f"Webhook set edildi: {WEBHOOK_URL}")
 
-    # BOTU BAŞLAT (TEK SATIR, EN ÖNEMLİ KISIM!)
+    # Botu başlat (nest_asyncio sayesinde loop çakışmaz)
+    print("Bot çalışıyor ve güncellemeleri bekliyor...")
     await app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
@@ -79,4 +84,10 @@ async def main():
     )
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Event loop'u doğru yönet (Render için)
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    loop.run_until_complete(main())
