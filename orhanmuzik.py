@@ -1,96 +1,118 @@
 import os
-import asyncio
 import logging
 import yt_dlp
-from fastapi import FastAPI, Request
-from fastapi.responses import Response
+import glob
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-logging.basicConfig(level=logging.INFO)
+# BURAYA KENDİ BOT TOKENINI YAZ
+TOKEN = "BURAYA_TOKENINI_YAZ"
 
-TOKEN = "8304604344:AAGJg949AqR7iitfqWGkvdu8QFtDe7rIScc"
-PORT = int(os.environ.get("PORT", 10000))
-HOST = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "drmuzik-bot-1.onrender.com")
-WEBHOOK_URL = f"https://{HOST}/webhook"
-
-app = FastAPI()
-
-# BOT OLUŞTUR
-application = ApplicationBuilder().token(TOKEN).build()
-
-# KOMUTLAR
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Selam kral! Bot aktif\n/sarki şarkı adı yaz, hemen gönderiyorum!")
-
-async def sarki(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("Şarkı adı yaz! /sarki kibariye annem")
-        return
-    query = " ".join(context.args)
-    msg = await update.message.reply_text(f"Aranıyor: {query}…")
-    try:
-        ydl_opts = {
-            "format": "bestaudio/best",
-            "quiet": True,
-            "outtmpl": "song.%(ext)s",
-            "postprocessors": [{
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192"
-            }],
-            "noplaylist": True,
-            "geo_bypass": True,
-            "geo_bypass_country": "TR",
-            "http_headers": {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "tr-TR,tr;q=0.9,en;q=0.8",
-                "Accept-Encoding": "gzip, deflate, br",
-                "Connection": "keep-alive",
-                "Upgrade-Insecure-Requests": "1"
-            },
-            "retries": 15,
-            "fragment_retries": 15,
-            "sleep_interval": 2,
-            "max_sleep_interval": 10,
-            "extractor_retries": 5
+# 2025'te sorunsuz çalışan ayarlar
+YDL_OPTS = {
+    'format': 'bestaudio/best',
+    'noplaylist': True,
+    'quiet': True,
+    'no_warnings': True,
+    'outtmpl': '/tmp/%(title)s.%(ext)s',
+    'restrictfilenames': True,
+    'postprocessors': [{
+        'key': 'FFmpegExtractAudio',
+        'preferredcodec': 'mp3',
+        'preferredquality': '192',
+    }],
+    'geo_bypass': True,
+    'nocheckcertificate': True,
+    'retries': 20,
+    'fragment_retries': 20,
+    'extractor_retries': 10,
+    'skip_unavailable_fragments': True,
+    'default_search': 'ytsearch5:',
+    'cookiefile': '/app/cookies.txt' if os.path.exists('/app/cookies.txt') else None,
+    'extractor_args': {
+        'youtube': {
+            'skip': ['hls', 'dash'],
+            'player_client': ['android', 'web', 'ios'],
         }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch1:{query}", download=True)
-            title = info.get("title", "Şarkı")
-        await update.message.reply_audio(open("song.mp3", "rb"), title=title, caption=title)
-        await msg.delete()
+    }
+}
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Selam kral! Bot aktif ✅\n"
+        "Şarkı adı yaz, hemen gönderiyorum!\n"
+        "Örnek: Müslüm Gürses Unutamadım"
+    )
+
+async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.message.text.strip()
+    if query.lower().startswith('/sarki '):
+        query = query[7:].strip()
+
+    if len(query) < 2:
+        await update.message.reply_text("Şarkı adı yazman lazım kral 😅")
+        return
+
+    status_msg = await update.message.reply_text(f"🔍 Aranıyor: {query}")
+
+    try:
+        with yt_dlp.YoutubeDL(YDL_OPTS) as ydl:
+            search = ydl.extract_info(f"ytsearch5:{query}", download=False)
+            if not search or not search.get('entries'):
+                await status_msg.edit_text("❌ Şarkı bulunamadı, farklı isimle dene.")
+                return
+
+            entry = None
+            for e in search['entries']:
+                if e and e.get('duration', 0) <= 1200:
+                    entry = e
+                    break
+            if not entry:
+                entry = search['entries'][0]
+
+            title = entry['title']
+            await status_msg.edit_text(f"⬇️ İndiriliyor:\n{title}")
+
+            ydl.download([entry['url']])
+
+            # Dosyayı bul (bazen başlıkta özel karakter oluyor)
+            files = glob.glob("/tmp/*.mp3")
+            if not files:
+                await status_msg.edit_text("❌ Ses dosyası oluşturulamadı.")
+                return
+            filename = files[0]
+
+            if os.path.getsize(filename) > 50 * 1024 * 1024:
+                await status_msg.edit_text("❌ Dosya çok büyük (50MB+), gönderilemedi.")
+                os.remove(filename)
+                return
+
+            with open(filename, 'rb') as audio:
+                await update.message.reply_audio(
+                    audio=audio,
+                    title=title,
+                    caption=f"🎵 {title}\n\nKeyfini çıkar kral ❤️"
+                )
+
+            await status_msg.delete()
+            os.remove(filename)
+
     except Exception as e:
-        await msg.edit_text("Şarkı bulunamadı.")
-    finally:
-        if os.path.exists("song.mp3"):
-            os.remove("song.mp3")
+        logging.error(f"Hata: {e}")
+        await status_msg.edit_text("❌ Bir şeyler ters gitti, tekrar dene kral.")
 
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("sarki", sarki))
+# Handler'lar
+app = Application.builder().token(TOKEN).build()
+app.add_handler(CommandHandler("start", start))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_and_send))
+app.add_handler(CommandHandler("sarki", download_and_send))
 
-# HEALTH CHECK
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
-
-# WEBHOOK
-@app.post("/webhook")
-async def webhook(request: Request):
-    json_data = await request.json()
-    update = Update.de_json(json_data, application.bot)
-    asyncio.create_task(application.process_update(update))
-    return Response(content="OK")
-
-# BAŞLAT
-@app.on_event("startup")
-async def on_startup():
-    await application.initialize()  # BU SATIR EKSİKTİ!
-    await application.start()
-    await application.bot.set_webhook(url=WEBHOOK_URL)
-    logging.info("Bot başladı ve webhook aktif!")
-
+# Railway webhook
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    port = int(os.environ.get("PORT", 8443))
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=port,
+        url_path=TOKEN,
+        webhook_url=f"https://{os.environ['RAILWAY_STATIC_URL']}/{TOKEN}"
+    )
