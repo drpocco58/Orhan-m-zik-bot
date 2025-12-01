@@ -1,5 +1,3 @@
-python-telegram-bot==20.7
-fastapi
-beautifulsoup4
-requests
-uvicorn
+yt-dlp @ git+https://github.com/yt-dlp/yt-dlp.git@master
+# Veya pinned son release: yt-dlp==2025.11.12
+# Eğer hata verirse, pip install --force-reinstall "https://github.com/yt-dlp/yt-dlp/archive/master.tar.gz" komutunu local'de dene
