@@ -2,6 +2,7 @@ import os
 import asyncio
 import logging
 import requests
+from bs4 import BeautifulSoup
 from fastapi import FastAPI, Request
 from fastapi.responses import Response
 from telegram import Update
@@ -17,8 +18,10 @@ WEBHOOK_URL = f"https://{HOST}/webhook"
 app = FastAPI()
 application = ApplicationBuilder().token(TOKEN).build()
 
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Selam kral! Bot aktif.\n/sarki şarkı adı yaz, hemen gönderiyorum!")
+    await update.message.reply_text("Selam kral! Bot aktif.\n/sarki şarkı adı yaz hemen gönderiyorum!")
+
 
 async def sarki(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
@@ -26,44 +29,56 @@ async def sarki(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     query = " ".join(context.args)
-    msg = await update.message.reply_text(f"Aranıyor: {query}…")
+    msg = await update.message.reply_text(f"Arıyorum: {query}…")
 
     try:
-        # Şarkı Evreni arama
+        # Arama sayfası
         search_url = f"https://sarkievreni.com/?s={query.replace(' ', '+')}"
-        html = requests.get(search_url).text
+        html = requests.get(search_url, timeout=10).text
 
-        # İlk mp3 linkini bul
-        import re
-        match = re.search(r"https://sarkievreni\.com/wp-content/uploads/[^\"]+\.mp3", html)
+        # HTML parse
+        soup = BeautifulSoup(html, "html.parser")
 
-        if not match:
+        # Tüm mp3 linklerini ara
+        mp3_links = [a["href"] for a in soup.find_all("a", href=True) if a["href"].endswith(".mp3")]
+
+        if not mp3_links:
             await msg.edit_text("Şarkı bulunamadı.")
             return
 
-        mp3_url = match.group()
+        mp3_url = mp3_links[0]  # ilk bulunan mp3
 
-        # mp3 indir
-        r = requests.get(mp3_url)
+        # MP3 indir
+        r = requests.get(mp3_url, timeout=20)
         with open("song.mp3", "wb") as f:
             f.write(r.content)
 
-        await update.message.reply_audio(open("song.mp3", "rb"), title=query, caption=query)
+        await update.message.reply_audio(
+            open("song.mp3", "rb"),
+            title=query,
+            caption=query
+        )
+
         await msg.delete()
 
-    except Exception:
+    except Exception as e:
+        logging.error(f"HATA: {e}")
         await msg.edit_text("Şarkı bulunamadı.")
 
     finally:
         if os.path.exists("song.mp3"):
             os.remove("song.mp3")
 
+
+# Bot bağlantı ayarları
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("sarki", sarki))
+
 
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
 
 @app.post("/webhook")
 async def webhook(request: Request):
@@ -72,9 +87,15 @@ async def webhook(request: Request):
     asyncio.create_task(application.process_update(update))
     return Response(content="OK")
 
+
 @app.on_event("startup")
 async def startup():
     await application.initialize()
     await application.start()
     await application.bot.set_webhook(url=WEBHOOK_URL)
-    logging.info("Bot Webhook Açıldı!")
+    logging.info("BOT ÇALIŞIYOR ✔")
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
