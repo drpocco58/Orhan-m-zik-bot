@@ -1,5 +1,5 @@
-python-telegram-bot==20.8
-yt-dlp==2024.11.18
+python-telegram-bot==20.7
 fastapi
+beautifulsoup4
+requests
 uvicorn
-nest-asyncio
