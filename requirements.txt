@@ -1,4 +1,1 @@
-python-telegram-bot==20.9
-yt-dlp @ git+https://github.com/yt-dlp/yt-dlp.git@master
-ffmpeg-python
 python-telegram-bot==20.8
