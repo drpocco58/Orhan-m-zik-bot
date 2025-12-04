@@ -1,6 +1,1 @@
-python-telegram-bot==20.7
-yt-dlp
-requests
-beautifulsoup4
-uvicorn
-fastapi
+python-telegram-bot==20.3
