@@ -8,16 +8,15 @@ TOKEN = os.getenv("BOT_TOKEN")
 
 # yt-dlp ayarları (cookies.txt ile age-restricted da çalışır)
 ydl_opts = {
-    'format': 'bestaudio/best',
-    'outtmpl': '%(title)s.%(ext)s',
-    'postprocessors': [{
-        'key': 'FFmpegExtractAudio',
-        'preferredcodec': 'mp3',
-        'preferredquality': '192',
+    "format": "bestaudio",
+    "postprocessors": [{
+        "key": "FFmpegExtractAudio",
+        "preferredcodec": "mp3",
+        "preferredquality": "192",
     }],
-    'quiet': True,
-    'no_warnings': True,
-    'cookiefile': 'cookies.txt'  # <-- cookies.txt dosyan burada olmalı
+    "quiet": True,
+    "no_warnings": True,
+    "cookiefile": "cookies.txt"
 }
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -48,7 +47,6 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.edit_text(f"İndiriliyor...\n🎵 {title}")
             ydl.download([entry['webpage_url']])
 
-            # Dosya adını bul
             filename = ydl.prepare_filename(entry).rsplit('.', 1)[0] + '.mp3'
             if not os.path.exists(filename):
                 await msg.edit_text("Dönüştürme hatası oldu, başka şarkı dene.")
@@ -59,7 +57,7 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_audio(chat_id=chat_id, audio=audio, title=title, timeout=120)
 
             await msg.delete()
-            os.remove(filename)  # temizlik
+            os.remove(filename)
 
     except Exception as e:
         await msg.edit_text(f"Bir hata oldu kral: {str(e)}")
