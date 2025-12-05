@@ -3,6 +3,7 @@ import asyncio
 import tempfile
 import shutil
 import yt_dlp
+import requests
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -12,12 +13,11 @@ from telegram.ext import (
     filters,
 )
 
-# TOKEN environment'dan alınıyor
 TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
-    raise SystemExit("BOT_TOKEN environment variable yok. Render ayarlarına BOT_TOKEN ekle.")
+    raise SystemExit("BOT_TOKEN yok. Render env'e BOT_TOKEN ekle.")
 
-# Genel yt-dlp seçenekleri (her indirme kendi outtmpl ile ayrı klasöre yazılır)
+# Daha sağlam yt-dlp ayarları
 BASE_YDL_OPTS = {
     "format": "bestaudio/best",
     "postprocessors": [{
@@ -27,95 +27,117 @@ BASE_YDL_OPTS = {
     }],
     "quiet": True,
     "no_warnings": True,
-    # "cookiefile": "cookies.txt",   # varsa ekleyebilirsin
+    "noplaylist": True,
+    "retries": 3,
+    "fragment_retries": 3,
+    "sleep_interval": 1,
+    "max_sleep_interval": 3,
+    "source_address": "0.0.0.0",  # IPv4
+    # "cookiefile": "cookies.txt",  # varsa aç
+    "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    }
 }
 
+# Yedek API (mucize.ml) — YouTube çalışmazsa buraya düşer
+def download_via_mucize(query, tmpdir):
+    try:
+        url = f"https://api-v2.mucize.ml/mp3?query={requests.utils.quote(query)}"
+        r = requests.get(url, timeout=30)
+        if r.status_code == 200 and len(r.content) > 1000:
+            path = os.path.join(tmpdir, "mucize.mp3")
+            with open(path, "wb") as f:
+                f.write(r.content)
+            return path
+    except Exception:
+        pass
+    return None
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Selam Orhan usta! Bana şarkı adı gönder, MP3 yapıp göndereyim. 🎶")
-
-
-def _sync_download_search_to_mp3(query: str, ydl_base_opts: dict):
+def _sync_search_and_download(query: str, ydl_base_opts: dict):
     """
-    Synchronous function to run inside executor.
-    Creates a temp dir, downloads the best audio and converts to mp3,
-    returns (mp3_path, temp_dir) or (None, temp_dir) on failure.
+    1) Önce ytsearch1 ile arar ve mp3'e dönüştürür.
+    2) Eğer sonuç yoksa mucize API'ye düşer.
+    Döner: (mp3_path or None, title or None)
     """
     tmpdir = tempfile.mkdtemp(prefix="orhan_")
     opts = dict(ydl_base_opts)
     opts["outtmpl"] = os.path.join(tmpdir, "%(title)s.%(ext)s")
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(f"ytsearch:{query}", download=True)
-            # get entry used (search returns entries)
-            entry = None
-            if isinstance(info, dict) and "entries" in info and info["entries"]:
-                entry = info["entries"][0]
-            elif isinstance(info, dict):
-                entry = info
-            # find a file inside tmpdir that looks like audio
-            for fname in os.listdir(tmpdir):
-                if fname.lower().endswith((".mp3", ".m4a", ".webm", ".wav", ".aac", ".opus")):
-                    return os.path.join(tmpdir, fname), tmpdir
-            return None, tmpdir
-    except Exception as e:
-        # ensure tmpdir left for cleanup by caller
-        return None, tmpdir
 
+    # Try multiple ytsearch variants
+    search_prefixes = ["ytsearch1:", "ytsearch:", "ytsearchdate1:"]
+    try:
+        for pref in search_prefixes:
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(f"{pref}{query}", download=True)
+                    # info can be dict with entries
+                    entry = None
+                    if isinstance(info, dict) and "entries" in info and info["entries"]:
+                        entry = info["entries"][0]
+                    elif isinstance(info, dict) and info.get("webpage_url"):
+                        entry = info
+                    if entry:
+                        # find downloaded audio file
+                        for fname in os.listdir(tmpdir):
+                            if fname.lower().endswith((".mp3", ".m4a", ".webm", ".wav", ".aac", ".opus")):
+                                return os.path.join(tmpdir, fname), entry.get("title") or query
+            except Exception:
+                # next search strategy
+                continue
+
+        # Eğer YouTube'dan gelmediyse yedek API deneyelim
+        muc = download_via_mucize(query, tmpdir)
+        if muc:
+            return muc, query
+
+        return None, None
+    except Exception:
+        return None, None
 
 async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = (update.message.text or "").strip()
     if not query:
-        await update.message.reply_text("Şarkı adını yaz usta.")
+        await update.message.reply_text("Şarkı adını yaz kardeş.")
         return
 
-    status_msg = await update.message.reply_text(f"Aranıyor: {query} 🔎")
+    status = await update.message.reply_text(f"Aranıyor: {query} 🔎")
+
     loop = asyncio.get_running_loop()
-
     try:
-        # çalıştırma için 120s timeout (gerekirse artır)
-        coro = loop.run_in_executor(None, _sync_download_search_to_mp3, query, BASE_YDL_OPTS)
-        mp3_path, tmpdir = await asyncio.wait_for(coro, timeout=120)
+        coro = loop.run_in_executor(None, _sync_search_and_download, query, BASE_YDL_OPTS)
+        mp3_path, title = await asyncio.wait_for(coro, timeout=180)
 
-        if not mp3_path or not os.path.exists(mp3_path):
-            await status_msg.edit_text("Şarkı bulunamadı veya indirme başarısız oldu.")
+        if not mp3_path:
+            await status.edit_text("Şarkı bulunamadı (YouTube/Yedek API başarısız).")
             return
 
-        await status_msg.edit_text("Gönderiliyor… 🚀")
-
-        # Telegram'a gönder (dosya olarak)
+        await status.edit_text("Gönderiliyor… 🚀")
         with open(mp3_path, "rb") as f:
-            await context.bot.send_audio(
-                chat_id=update.effective_chat.id,
-                audio=f,
-                title=os.path.basename(mp3_path).rsplit(".", 1)[0],
-                timeout=300
-            )
-
-        await status_msg.delete()
+            await context.bot.send_audio(chat_id=update.effective_chat.id, audio=f, title=title or query, timeout=300)
+        await status.delete()
 
     except asyncio.TimeoutError:
-        await status_msg.edit_text("İndirme çok sürdü (zaman aşımı). Başka şarkı dene.")
+        await status.edit_text("İndirme çok uzun sürdü (zaman aşımı).")
     except Exception as e:
-        await status_msg.edit_text(f"Hata oldu: {e}")
+        await status.edit_text(f"Beklenmeyen hata: {e}")
     finally:
-        # tmpdir temizle (varsa)
         try:
-            if 'tmpdir' in locals() and tmpdir and os.path.exists(tmpdir):
-                shutil.rmtree(tmpdir)
+            if 'mp3_path' in locals() and mp3_path and os.path.exists(mp3_path):
+                # mp3_path may be inside tmpdir; remove tmpdir
+                shutil.rmtree(os.path.dirname(mp3_path), ignore_errors=True)
         except Exception:
             pass
 
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Selam Orhan usta! Şarkı adını yaz, ben indirmeye çalışayım.")
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_and_send))
 
-    # run_polling() bloklayıcıdır ve process'i ayakta tutar
-    print("Bot polling modunda başlatılıyor...")
+    print("Bot polling başlatılıyor...")
     app.run_polling(drop_pending_updates=True)
-
 
 if __name__ == "__main__":
     main()
